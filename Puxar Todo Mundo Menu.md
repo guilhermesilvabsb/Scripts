@@ -118,7 +118,7 @@ title.Position = UDim2.new(0,10,0,0)
 title.BackgroundTransparency = 1
 title.Text = "Puxar Todo Mundo"
 title.Font = Enum.Font.GothamBold
-title.TextSize = 20
+title.TextSize = 40
 title.TextColor3 = Color3.fromRGB(255,255,255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 
