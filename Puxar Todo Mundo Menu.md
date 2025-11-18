@@ -1,5 +1,5 @@
 --========================================================
---  BRING UI COMPLETA v3.1 (com proteção anti-spam)
+--  BRING UI COMPLETA v3.2 (com proteção anti-spam e menu arrastável cross-platform)
 --  PC + MOBILE | Selecionar Todos | Sem Minimizar | Logs
 --========================================================
 
@@ -7,6 +7,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
@@ -33,7 +34,6 @@ local selectedPlayers = {}
 --=====================
 -- Funções de posição
 --=====================
-
 local function computeBringPosition()
 	local char = localPlayer.Character
 	if not char then return nil end
@@ -50,7 +50,6 @@ end
 --=======================
 -- UI BASE
 --=======================
-
 local ui = Instance.new("ScreenGui")
 ui.Name = "BringUI"
 ui.ResetOnSpawn = false
@@ -59,7 +58,6 @@ ui.Parent = playerGui
 ---------------------------------------
 -- Logs discretos (toast)
 ---------------------------------------
-
 local logHolder = Instance.new("Frame", ui)
 logHolder.Size = UDim2.new(0, 300, 0, 160)
 logHolder.Position = UDim2.new(0, 12, 1, -170)
@@ -96,15 +94,46 @@ end
 ---------------------------------------
 -- Painel principal
 ---------------------------------------
-
 local frame = Instance.new("Frame", ui)
 frame.Size = UDim2.new(0, 360, 0, 360)
 frame.Position = UDim2.new(0.5, -180, 0.5, -180)
 frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 frame.Active = true
-frame.Draggable = true
-
+-- frame.Draggable = true  -- removido, agora arrastável cross-platform
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0,12)
+
+-- ============================
+-- Código de arraste cross-platform
+-- ============================
+local dragging = false
+local dragStart = Vector2.new()
+local frameStart = Vector2.new()
+
+frame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or
+	   input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		frameStart = frame.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		frame.Position = UDim2.new(
+			frameStart.X.Scale,
+			frameStart.X.Offset + delta.X,
+			frameStart.Y.Scale,
+			frameStart.Y.Offset + delta.Y
+		)
+	end
+end)
 
 -- Fade overlay
 local fadeOverlay = Instance.new("Frame", frame)
@@ -118,7 +147,7 @@ title.Position = UDim2.new(0,10,0,0)
 title.BackgroundTransparency = 1
 title.Text = "Puxar Todo Mundo"
 title.Font = Enum.Font.GothamBold
-title.TextSize = 40
+title.TextSize = 20
 title.TextColor3 = Color3.fromRGB(255,255,255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 
@@ -166,7 +195,6 @@ end)
 ------------------------------------------------------
 -- Botão Selecionar Todos / Desmarcar Todos
 ------------------------------------------------------
-
 local selectAllBtn = Instance.new("TextButton", frame)
 selectAllBtn.Size = UDim2.new(1,-20,0,32)
 selectAllBtn.Position = UDim2.new(0,10,0,176)
@@ -179,17 +207,14 @@ selectAllBtn.AutoButtonColor = false
 Instance.new("UICorner", selectAllBtn).CornerRadius = UDim.new(0,8)
 
 local allSelected = false
-
 selectAllBtn.MouseButton1Click:Connect(function()
 	allSelected = not allSelected
 	selectAllBtn.Text = allSelected and "Desmarcar Todos" or "Selecionar Todos"
-
 	for _, plr in ipairs(Players:GetPlayers()) do
 		if plr ~= localPlayer then
 			selectedPlayers[plr] = allSelected
 		end
 	end
-
 	refreshPlayerList()
 	newLog(allSelected and "Todos selecionados" or "Todos desmarcados")
 end)
@@ -197,7 +222,6 @@ end)
 ---------------------------------------
 -- Distância
 ---------------------------------------
-
 local distLabel = Instance.new("TextLabel", frame)
 distLabel.Size = UDim2.new(1,-20,0,24)
 distLabel.Position = UDim2.new(0,10,0,214)
@@ -222,7 +246,6 @@ Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(0,5)
 ---------------------------------------
 -- Lista de jogadores
 ---------------------------------------
-
 local playerList = Instance.new("ScrollingFrame", frame)
 playerList.Size = UDim2.new(1,-20,0,90)
 playerList.Position = UDim2.new(0,10,0,260)
@@ -239,7 +262,6 @@ UIListLayout.Padding = UDim.new(0,4)
 --------------------------------------
 -- Atualizar lista de jogadores
 --------------------------------------
-
 function refreshPlayerList()
 	for _,c in ipairs(playerList:GetChildren()) do
 		if not c:IsA("UIListLayout") then
@@ -297,31 +319,30 @@ end)
 ---------------------------------------
 -- Slider (PC + mobile)
 ---------------------------------------
-
-local dragging = false
+local draggingSlider = false
 
 sliderBack.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-	or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = true
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or
+	   input.UserInputType == Enum.UserInputType.Touch then
+		draggingSlider = true
 	end
 end)
 
 sliderBack.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-	or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = false
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or
+	   input.UserInputType == Enum.UserInputType.Touch then
+		draggingSlider = false
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.Touch then
-		dragging = false
+		draggingSlider = false
 	end
 end)
 
 RunService.RenderStepped:Connect(function()
-	if dragging then
+	if draggingSlider then
 		local posX = UserInputService:GetMouseLocation().X
 		local relX = math.clamp(posX - sliderBack.AbsolutePosition.X, 0, sliderBack.AbsoluteSize.X)
 		local frac = relX / math.max(1, sliderBack.AbsoluteSize.X)
@@ -340,7 +361,6 @@ end)
 ---------------------------------------
 -- Toggle Bring (ON/OFF)
 ---------------------------------------
-
 toggleBtn.MouseButton1Click:Connect(function()
 	bringEnabled = not bringEnabled
 	toggleBtn.Text = "Bring: " .. (bringEnabled and "ON" or "OFF")
@@ -351,21 +371,19 @@ toggleBtn.MouseButton1Click:Connect(function()
 			local pos = computeBringPosition()
 			if pos then
 				for plr,sel in pairs(selectedPlayers) do
-					if sel and plr.Character then
-						local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-						if hrp then
-							hrp.CFrame = CFrame.new(pos)
-							hrp.Anchored = true
-						end
+					if sel and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+						local hrp = plr.Character.HumanoidRootPart
+						hrp.CFrame = CFrame.new(pos)
+						hrp.Anchored = true
 					end
 				end
 			end
 		end
 	else
 		for plr,sel in pairs(selectedPlayers) do
-			if sel and plr.Character then
-				local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-				if hrp then hrp.Anchored = false end
+			if sel and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+				local hrp = plr.Character.HumanoidRootPart
+				hrp.Anchored = false
 			end
 		end
 	end
@@ -374,7 +392,6 @@ end)
 ---------------------------------------
 -- Reposicionar
 ---------------------------------------
-
 repositionBtn.MouseButton1Click:Connect(function()
 	updateBringPosition()
 	newLog("Posição atualizada")
@@ -383,10 +400,8 @@ end)
 ---------------------------------------
 -- Teclas de atalho
 ---------------------------------------
-
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
-
 	if input.KeyCode == Enum.KeyCode.F then
 		toggleBtn.MouseButton1Click:Fire()
 	elseif input.KeyCode == Enum.KeyCode.R then
@@ -397,34 +412,29 @@ end)
 ---------------------------------------
 -- Loop principal do Bring
 ---------------------------------------
-
 RunService.RenderStepped:Connect(function()
 	if not bringEnabled then return end
-
 	bringPosition = computeBringPosition()
 	if not bringPosition then return end
 
 	for plr,selected in pairs(selectedPlayers) do
-		if selected and plr.Character then
-			local char = plr.Character
-			local hrp = char:FindFirstChild("HumanoidRootPart")
-			if hrp then
+		if selected and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+			local hrp = plr.Character.HumanoidRootPart
 
-				if tick() - (lastCleared[plr] or 0) >= clearCooldown then
-					pcall(function()
-						if plr:FindFirstChild("Backpack") then
-							plr.Backpack:ClearAllChildren()
-						end
-						for _,tool in ipairs(char:GetChildren()) do
-							if tool:IsA("Tool") then tool:Destroy() end
-						end
-					end)
-					lastCleared[plr] = tick()
-				end
-
-				hrp.Anchored = false
-				hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(bringPosition), lerpAlpha)
+			if tick() - (lastCleared[plr] or 0) >= clearCooldown then
+				pcall(function()
+					if plr:FindFirstChild("Backpack") then
+						plr.Backpack:ClearAllChildren()
+					end
+					for _,tool in ipairs(plr.Character:GetChildren()) do
+						if tool:IsA("Tool") then tool:Destroy() end
+					end
+				end)
+				lastCleared[plr] = tick()
 			end
+
+			hrp.Anchored = false
+			hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(bringPosition), lerpAlpha)
 		end
 	end
 end)
@@ -432,7 +442,6 @@ end)
 ---------------------------------------
 -- Respawn
 ---------------------------------------
-
 localPlayer.CharacterAdded:Connect(function()
 	task.wait(0.2)
 	updateBringPosition()
@@ -441,10 +450,9 @@ end)
 ---------------------------------------
 -- Inicial
 ---------------------------------------
-
 toggleBtn.Text = "Bring: "..(bringEnabled and "ON" or "OFF")
 distLabel.Text = "Distância: "..distance
 sliderFill.Size = UDim2.new(distance/20,0,1,0)
 
 newLog("Painel carregado ✔")
-print("[BringUI] Carregado v3.1")
+print("[BringUI] Carregado v3.2")
