@@ -1,0 +1,428 @@
+--========================================================
+--  Menu De Comandos v1.3
+--  Fly speed ajustável, Goto ✔ único, Noclip, ESP (todos)
+--  Teleport único (Tween 1s), Drag PC/Mobile, Anti-spam
+--========================================================
+
+-- Serviços
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local localPlayer = Players.LocalPlayer
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+
+-- Anti-spam
+if playerGui:FindFirstChild("TeleportadorUI") then
+    warn("Menu já existe! Não é permitido criar outra instância.")
+    return
+end
+
+-- Estados
+local selectedPlayers = {} 
+local espTags = {}           
+local Noclipping = nil       
+local FLYING = false
+local flyKeyDown, flyKeyUp = nil, nil
+local flySpeed = 50 -- velocidade inicial do Fly
+
+-- ======================
+-- UI
+-- ======================
+local ui = Instance.new("ScreenGui")
+ui.Name = "TeleportadorUI"
+ui.ResetOnSpawn = false
+ui.Parent = playerGui
+
+local frame = Instance.new("Frame", ui)
+frame.Size = UDim2.new(0, 360, 0, 400)
+frame.Position = UDim2.new(0.5, -180, 0.5, -200)
+frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+frame.Active = true
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0,12)
+
+-- Drag PC + Mobile
+local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
+local function update(input)
+    local delta = input.Position - dragStart
+    frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
+                               startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = frame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
+
+-- Título
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1, -20, 0, 36)
+title.Position = UDim2.new(0,10,0,6)
+title.BackgroundTransparency = 1
+title.Text = "Menu De Comandos"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Log
+local logHolder = Instance.new("Frame", ui)
+logHolder.Size = UDim2.new(0, 300, 0, 160)
+logHolder.Position = UDim2.new(0, 12, 1, -170)
+logHolder.BackgroundTransparency = 1
+logHolder.ClipsDescendants = true
+
+local function newLog(text)
+	local msg = Instance.new("TextLabel", logHolder)
+	msg.Size = UDim2.new(1, 0, 0, 24)
+	msg.Position = UDim2.new(0, 0, 1, 0)
+	msg.BackgroundColor3 = Color3.fromRGB(18,18,18)
+	msg.BackgroundTransparency = 0.1
+	msg.TextColor3 = Color3.fromRGB(220,220,220)
+	msg.Font = Enum.Font.Gotham
+	msg.TextSize = 14
+	msg.TextXAlignment = Enum.TextXAlignment.Left
+	msg.Text = "  "..text
+	msg.BorderSizePixel = 0
+	Instance.new("UICorner", msg).CornerRadius = UDim.new(0,6)
+	msg:TweenPosition(UDim2.new(0,0,1,-26), "Out", "Quad", 0.25, true)
+	task.delay(2.2, function()
+		if msg and msg.Parent then
+			msg:TweenPosition(UDim2.new(0,0,1,0), "In", "Quad", 0.2, true)
+			task.wait(0.2)
+			if msg then msg:Destroy() end
+		end
+	end)
+end
+
+-- Botões
+local startY = 52
+local function makeBtn(text, y)
+	local b = Instance.new("TextButton", frame)
+	b.Size = UDim2.new(1,-20,0,30)
+	b.Position = UDim2.new(0,10,0,y)
+	b.BackgroundColor3 = Color3.fromRGB(40,40,40)
+	b.TextColor3 = Color3.fromRGB(255,255,255)
+	b.Font = Enum.Font.Gotham
+	b.TextSize = 14
+	b.Text = text
+	b.AutoButtonColor = false
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0,8)
+	return b
+end
+
+local flyBtn = makeBtn("Fly: OFF", startY)
+local flyIncBtn = makeBtn("Fly +", startY + 36)
+local flyDecBtn = makeBtn("Fly -", startY + 72)
+local noclipBtn = makeBtn("Noclip: OFF", startY + 108)
+local espBtn = makeBtn("ESP: OFF (todos)", startY + 144)
+local gotoBtn = makeBtn("Goto -> (1 player)", startY + 180)
+
+-- Player list
+local playerList = Instance.new("ScrollingFrame", frame)
+playerList.Size = UDim2.new(1,-20,0,70)
+playerList.Position = UDim2.new(0,10,1,-80)
+playerList.BackgroundColor3 = Color3.fromRGB(25,25,25)
+playerList.BorderSizePixel = 0
+playerList.ScrollBarThickness = 6
+Instance.new("UICorner", playerList).CornerRadius = UDim.new(0,8)
+local UIListLayout = Instance.new("UIListLayout", playerList)
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0,4)
+
+-- ======================
+-- Refresh Player List (1 ✔ apenas)
+-- ======================
+local function refreshPlayerList()
+	for _,c in ipairs(playerList:GetChildren()) do
+		if not c:IsA("UIListLayout") then c:Destroy() end
+	end
+	for _,plr in ipairs(Players:GetPlayers()) do
+		if plr ~= localPlayer then
+			local item = Instance.new("Frame", playerList)
+			item.Size = UDim2.new(1,-4,0,24)
+			item.BackgroundColor3 = Color3.fromRGB(30,30,30)
+			Instance.new("UICorner", item).CornerRadius = UDim.new(0,6)
+
+			local check = Instance.new("TextButton", item)
+			check.Size = UDim2.new(0,26,1,0)
+			check.Position = UDim2.new(0,2,0,0)
+			check.BackgroundColor3 = Color3.fromRGB(50,50,50)
+			check.Text = selectedPlayers[plr] and "✔" or ""
+			check.Font = Enum.Font.GothamBold
+			check.TextSize = 16
+			check.TextColor3 = Color3.fromRGB(255,255,255)
+			check.AutoButtonColor = false
+			Instance.new("UICorner", check).CornerRadius = UDim.new(0,6)
+
+			local name = Instance.new("TextLabel", item)
+			name.Size = UDim2.new(1,-36,1,0)
+			name.Position = UDim2.new(0,36,0,0)
+			name.BackgroundTransparency = 1
+			name.Text = plr.Name
+			name.Font = Enum.Font.Gotham
+			name.TextSize = 14
+			name.TextColor3 = Color3.fromRGB(245,245,245)
+			name.TextXAlignment = Enum.TextXAlignment.Left
+
+			check.MouseButton1Click:Connect(function()
+				for p,_ in pairs(selectedPlayers) do selectedPlayers[p] = false end
+				selectedPlayers[plr] = true
+				refreshPlayerList()
+			end)
+		end
+	end
+	playerList.CanvasSize = UDim2.new(0,0,0,UIListLayout.AbsoluteContentSize.Y + 6)
+end
+
+refreshPlayerList()
+Players.PlayerAdded:Connect(refreshPlayerList)
+Players.PlayerRemoving:Connect(function(plr)
+	selectedPlayers[plr] = nil
+	refreshPlayerList()
+end)
+
+-- ======================
+-- Fly
+-- ======================
+local function sFLY()
+	local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+	local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid")
+	local hrp = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
+	FLYING = true
+
+	local CONTROL = {F=0,B=0,L=0,R=0,Q=0,E=0}
+	local BV = Instance.new("BodyVelocity", hrp)
+	BV.MaxForce = Vector3.new(9e9,9e9,9e9)
+	BV.Velocity = Vector3.new(0,0,0)
+
+	local BG = Instance.new("BodyGyro", hrp)
+	BG.MaxTorque = Vector3.new(9e9,9e9,9e9)
+	BG.CFrame = hrp.CFrame
+
+	flyKeyDown = UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		if input.KeyCode == Enum.KeyCode.W then CONTROL.F = 1
+		elseif input.KeyCode == Enum.KeyCode.S then CONTROL.B = 1
+		elseif input.KeyCode == Enum.KeyCode.A then CONTROL.L = 1
+		elseif input.KeyCode == Enum.KeyCode.D then CONTROL.R = 1
+		elseif input.KeyCode == Enum.KeyCode.Q then CONTROL.E = -1
+		elseif input.KeyCode == Enum.KeyCode.E then CONTROL.Q = 1
+		end
+	end)
+
+	flyKeyUp = UserInputService.InputEnded:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.W then CONTROL.F = 0
+		elseif input.KeyCode == Enum.KeyCode.S then CONTROL.B = 0
+		elseif input.KeyCode == Enum.KeyCode.A then CONTROL.L = 0
+		elseif input.KeyCode == Enum.KeyCode.D then CONTROL.R = 0
+		elseif input.KeyCode == Enum.KeyCode.Q then CONTROL.E = 0
+		elseif input.KeyCode == Enum.KeyCode.E then CONTROL.Q = 0
+		end
+	end)
+
+	task.spawn(function()
+		while FLYING do
+			local cam = workspace.CurrentCamera
+			local moveDir = (cam.CFrame.LookVector * (CONTROL.F-CONTROL.B) + cam.CFrame.RightVector * (CONTROL.R-CONTROL.L) + Vector3.new(0,(CONTROL.Q+CONTROL.E),0))
+			if moveDir.Magnitude > 0 then
+				BV.Velocity = moveDir.Unit * flySpeed
+			else
+				BV.Velocity = Vector3.new(0,0,0)
+			end
+			BG.CFrame = cam.CFrame
+			task.wait()
+		end
+		BV:Destroy()
+		BG:Destroy()
+	end)
+end
+
+local function NOFLY()
+	FLYING = false
+	if flyKeyDown then flyKeyDown:Disconnect() end
+	if flyKeyUp then flyKeyUp:Disconnect() end
+end
+
+flyBtn.MouseButton1Click:Connect(function()
+	if not FLYING then
+		sFLY()
+		flyBtn.Text = "Fly: ON"
+		newLog("Fly ativado")
+	else
+		NOFLY()
+		flyBtn.Text = "Fly: OFF"
+		newLog("Fly desativado")
+	end
+end)
+
+flyIncBtn.MouseButton1Click:Connect(function()
+	flySpeed = flySpeed + 10
+	newLog("Fly speed: "..flySpeed)
+end)
+
+flyDecBtn.MouseButton1Click:Connect(function()
+	flySpeed = math.max(10, flySpeed - 10)
+	newLog("Fly speed: "..flySpeed)
+end)
+
+-- ======================
+-- Noclip
+-- ======================
+local function enableNoclip()
+	if Noclipping then return end
+	Noclipping = RunService.Stepped:Connect(function()
+		local char = localPlayer.Character
+		if char then
+			for _,child in pairs(char:GetDescendants()) do
+				if child:IsA("BasePart") then child.CanCollide = false end
+			end
+		end
+	end)
+	newLog("Noclip ativado")
+end
+
+local function disableNoclip()
+	if Noclipping then
+		Noclipping:Disconnect()
+		Noclipping = nil
+	end
+	newLog("Noclip desativado")
+end
+
+noclipBtn.MouseButton1Click:Connect(function()
+	if not Noclipping then
+		enableNoclip()
+		noclipBtn.Text = "Noclip: ON"
+	else
+		disableNoclip()
+		noclipBtn.Text = "Noclip: OFF"
+	end
+end)
+
+-- ======================
+-- ESP
+-- ======================
+local espActive = false
+
+local function addESP(plr)
+	if espTags[plr] or not plr.Character then return end
+	local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	local gui = Instance.new("BillboardGui")
+	gui.Adornee = hrp
+	gui.AlwaysOnTop = true
+	gui.Size = UDim2.new(0,120,0,40)
+	gui.StudsOffset = Vector3.new(0,2.6,0)
+	gui.Name = "TeleportadorESP"
+	gui.Parent = hrp
+	local label = Instance.new("TextLabel", gui)
+	label.Size = UDim2.new(1,0,1,0)
+	label.BackgroundTransparency = 1
+	label.Text = plr.Name
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 14
+	label.TextColor3 = Color3.fromRGB(255,255,255)
+	label.TextStrokeTransparency = 0.6
+	label.TextYAlignment = Enum.TextYAlignment.Center
+	espTags[plr] = gui
+	plr.CharacterRemoving:Connect(function() removeESP(plr) end)
+end
+
+function removeESP(plr)
+	local gui = espTags[plr]
+	if gui then gui:Destroy() end
+	espTags[plr] = nil
+end
+
+local function enableESP()
+	if espActive then return end
+	espActive = true
+	espBtn.Text = "ESP: ON (todos)"
+	for _,plr in pairs(Players:GetPlayers()) do
+		if plr ~= localPlayer then addESP(plr) end
+	end
+	newLog("ESP ativado")
+end
+
+local function disableESP()
+	if not espActive then return end
+	espActive = false
+	espBtn.Text = "ESP: OFF (todos)"
+	for _,plr in pairs(espTags) do removeESP(plr) end
+end
+
+espBtn.MouseButton1Click:Connect(function()
+	if not espActive then enableESP() else disableESP() end
+end)
+
+Players.PlayerAdded:Connect(function(plr)
+	plr.CharacterAdded:Connect(function()
+		if espActive and plr ~= localPlayer then addESP(plr) end
+	end)
+end)
+
+-- ======================
+-- GOTO
+-- ======================
+local tweenTime = 1
+
+local function getSelectedPlayer()
+	for plr,sel in pairs(selectedPlayers) do
+		if sel then return plr end
+	end
+	return nil
+end
+
+gotoBtn.MouseButton1Click:Connect(function()
+	local target = getSelectedPlayer()
+	if not target then
+		newLog("Selecione 1 jogador para Goto")
+		return
+	end
+	if not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+		newLog("Alvo inválido")
+		return
+	end
+	if not localPlayer.Character or not localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+		newLog("Personagem não pronto")
+		return
+	end
+
+	local hrp = localPlayer.Character:FindFirstChild("HumanoidRootPart")
+	local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+	local tween = TweenService:Create(hrp, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = targetHRP.CFrame * CFrame.new(0,0,-2)})
+	tween:Play()
+	newLog("Teleportando para "..target.Name.." (1s)...")
+	tween.Completed:Connect(function()
+		newLog("Teleport concluído: "..target.Name)
+	end)
+end)
+
+-- ======================
+-- Inicialização
+-- ======================
+refreshPlayerList()
+newLog("Menu carregado v1.3 ✔")
+print("[Teleportador v1.3] Carregado")
